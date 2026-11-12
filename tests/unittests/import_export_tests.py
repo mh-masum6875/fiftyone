@@ -1850,6 +1850,60 @@ class ImageDetectionDatasetTests(ImageDatasetTests):
         self.assertEqual(len(relpath.split(os.path.sep)), 3)
 
     @drop_datasets
+    def test_text_detection_datasets_byte_order_mark(self):
+        # Some Windows editors save UTF-8 files with a byte order mark
+        bom = b"\xef\xbb\xbf"
+
+        for dataset_type in (
+            fo.types.YOLOv4Dataset,
+            fo.types.KITTIDetectionDataset,
+        ):
+            dataset = fo.Dataset()
+            dataset.add_sample(
+                fo.Sample(
+                    filepath=self._new_image(),
+                    ground_truth=fo.Detections(
+                        detections=[
+                            fo.Detection(
+                                label="cat",
+                                bounding_box=[0.1, 0.1, 0.4, 0.4],
+                            ),
+                        ]
+                    ),
+                )
+            )
+
+            export_dir = self._new_dir()
+
+            dataset.export(
+                export_dir=export_dir,
+                dataset_type=dataset_type,
+                label_field="ground_truth",
+            )
+
+            for root, _, filenames in os.walk(export_dir):
+                for filename in filenames:
+                    if filename.endswith((".txt", ".names")):
+                        path = os.path.join(root, filename)
+                        with open(path, "rb") as f:
+                            content = f.read()
+
+                        with open(path, "wb") as f:
+                            f.write(bom + content)
+
+            dataset2 = fo.Dataset.from_dir(
+                dataset_dir=export_dir,
+                dataset_type=dataset_type,
+                label_field="ground_truth",
+            )
+
+            self.assertEqual(len(dataset2), 1)
+            self.assertListEqual(
+                dataset2.values("ground_truth.detections.label", unwind=True),
+                ["cat"],
+            )
+
+    @drop_datasets
     def test_text_detection_datasets_non_ascii(self):
         for dataset_type in (
             fo.types.YOLOv4Dataset,
